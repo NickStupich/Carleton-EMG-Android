@@ -54,6 +54,52 @@ public class DataProtocol implements IBluetoothDataListener {
 	/*
 	 * Starts up the bluetooth connection, and waits for the ACK bit before returning whether it makes sense
 	 */
+	
+	public boolean Start()
+	{
+		for(int retry = 0;retry < CONNECT_RETRIES;retry++)
+		{
+			if(retry > 0){
+				try {
+					Thread.sleep(1000);
+				} catch (InterruptedException e) {
+					Log.e(TAG, "wow...we even fail to sleep...:" + e.toString());
+				}
+			}
+			
+			boolean connected = this.bluetooth.Connect(this.address, false);
+			if(!connected)
+			{
+				Log.e(TAG, "Bluetooth failed to connect");
+				continue;
+			}
+			
+			byte toSend = (byte)((1<<7) | this.channels);
+			this.bluetooth.sendByte(toSend);
+			byte[] buffer = this.bluetooth.readDirectly(1, 1000);
+			if(buffer == null)
+			{
+				Log.e(TAG, "Buffer is null");
+				this.StopAndDisconnect();
+				continue;
+			}
+			else if(buffer[0] == toSend)
+			{
+				this.bluetooth.startReading();
+				return true;
+			}
+			else
+			{
+				Log.e(TAG, "Failed to start - received " + Byte.toString(buffer[0]) + " when " + Byte.toString(this.channels) + " was expected (note- not unsigned cause java doesn't do that");
+				this.StopAndDisconnect();
+			}
+		}
+
+		this.StopAndDisconnect();
+		return false;
+	}
+	
+	/*
 	public boolean Start()
 	{
 		boolean connected = false;
@@ -85,31 +131,47 @@ public class DataProtocol implements IBluetoothDataListener {
 			if(buffer == null)
 			{
 				Log.e(TAG, "Buffer is null");
-				this.Stop();
+				this.stopMicrocontroller();
 			}
 			else if(buffer[0] == toSend)
 			{
 				this.bluetooth.startReading();
 				return true;
 			}
+			else if(buffer[0] == CONTROL_BYTE)
+			{
+				Log.d(TAG, "Got a control byte when expecting an ACK");
+				buffer = this.bluetooth.readDirectly(1, 1000);
+				if(buffer[0] == toSend)
+				{
+					Log.d(TAG, "After control byte got correct ACK");
+					this.bluetooth.startReading();
+					return true;
+					
+				}
+			}
 			else
 			{
 				Log.e(TAG, "Failed to start - received " + Byte.toString(buffer[0]) + " when " + Byte.toString(this.channels) + " was expected (note- not unsigned cause java doesn't do that");
-				this.Stop();
+				this.stopMicrocontroller();
+				//this.bluetooth.readDirectly(1, 1000);	//if we send Start() when it's already running, we get 2 control bytes.  Swallow them and any other garbage here
+				//Log.d(TAG, "After reading buffer2");
 			}
 		}
-		
 
-		this.Stop();
-		//give up, we've failed...
-		this.bluetooth.Disconnect();
+		this.StopAndDisconnect();
 		return false;
+	}*/
+	
+	public void StopAndDisconnect()
+	{
+		this.stopMicrocontroller();
+		this.bluetooth.Disconnect();
 	}
 	
-	public void Stop()
+	public void stopMicrocontroller()
 	{
 		this.bluetooth.sendByte((byte)0);
-		this.bluetooth.Disconnect();
 	}
 	
 	/* multiple gains by data, and return everything as one big happy array

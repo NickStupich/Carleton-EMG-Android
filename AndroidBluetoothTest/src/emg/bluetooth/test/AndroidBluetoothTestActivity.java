@@ -10,7 +10,7 @@ import emg.backend.*;
 public class AndroidBluetoothTestActivity extends Activity implements ITransformListener {
 	
 	String DEVICE_ADDRESS = "00:06:66:04:9B:21";
-	byte channels = 1;
+	byte channels = 1;//each bit is a channel (bits1-6)
 	
 	TextView mainText;
 	DataProtocol dataProtocol;
@@ -31,7 +31,7 @@ public class AndroidBluetoothTestActivity extends Activity implements ITransform
     @Override
     public void onDestroy()
     {
-    	this.dataProtocol.Stop();
+    	this.dataProtocol.StopAndDisconnect();
     }
 
 	public void addData(int[] data) {
