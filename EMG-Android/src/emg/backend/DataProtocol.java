@@ -9,12 +9,14 @@ public class DataProtocol implements IBluetoothDataListener {
 	
 	private String TAG = "DataProtocol";
 	
-	private static int CONTROL_BYTE = 255;	//deliminates chunks of data
+	private static byte CONTROL_BYTE = (byte)255;	//deliminates chunks of data
+	private static int CONNECT_RETRIES = 3;
 	
 	private enum ExpectedNext{
 		CONTROL,
 		GAIN,
-		DATA
+		DATA,
+		FAILURE
 	};
 	
 	private byte[] gains;
@@ -54,26 +56,54 @@ public class DataProtocol implements IBluetoothDataListener {
 	 */
 	public boolean Start()
 	{
-		this.bluetooth.Connect(this.address);
-		this.bluetooth.sendByte((byte)((1<<7) & this.channels));
-		byte[] buffer = this.bluetooth.readDirectly(1, 1000);
-		if(buffer == null)
+		boolean connected = false;
+		
+		for(int retry = 0;retry < CONNECT_RETRIES;retry++)
 		{
-			Log.e(TAG, "Buffer is null");
-			return false;
+			connected = this.bluetooth.Connect(this.address, false);
+			if(!connected)
+			{
+				Log.e(TAG, "Bluetooth failed to connect");
+			}
+			else
+			{
+				break;
+			}
 		}
-		if(buffer[0] == this.channels)
+		
+		if(!connected)
 		{
-			this.bluetooth.startReading();
-			return true;
-		}
-		else
-		{
-			Log.e(TAG, "Failed to start - received " + Byte.toString(buffer[0]) + " when " + Byte.toString(this.channels) + " was expected");
-			this.Stop();
+			Log.e(TAG, "Failed to connect after all tries");
 			return false;
 		}
 		
+		for(int retry = 0;retry < CONNECT_RETRIES;retry++)
+		{
+			byte toSend = (byte)((1<<7) | this.channels);
+			this.bluetooth.sendByte(toSend);
+			byte[] buffer = this.bluetooth.readDirectly(1, 1000);
+			if(buffer == null)
+			{
+				Log.e(TAG, "Buffer is null");
+				this.Stop();
+			}
+			else if(buffer[0] == toSend)
+			{
+				this.bluetooth.startReading();
+				return true;
+			}
+			else
+			{
+				Log.e(TAG, "Failed to start - received " + Byte.toString(buffer[0]) + " when " + Byte.toString(this.channels) + " was expected (note- not unsigned cause java doesn't do that");
+				this.Stop();
+			}
+		}
+		
+
+		this.Stop();
+		//give up, we've failed...
+		this.bluetooth.Disconnect();
+		return false;
 	}
 	
 	public void Stop()
@@ -92,31 +122,47 @@ public class DataProtocol implements IBluetoothDataListener {
 		{
 			for(int j=0;j< Constants.NUM_FOURIER_BINS;j++)
 			{
-				result[x] = this.data[i][j] * this.gains[i];
+				result[x] = (0xFF & this.data[i][j]) * (0xFF & this.gains[i]);	//convert from unsigned to signed
 				x++;
 			}
 		}
 		return result;
 	}
 	
+	//int count = 0;
 	public void addByte(byte b) {
+		//count++;
+		//if(count> 100)
+		//	this.Stop();
+		
 		switch(this.expected)
 		{
+		case FAILURE:
+			if(b == CONTROL_BYTE)
+			{
+				Log.e(TAG, "From failed state - received control byte");
+				this.expected = ExpectedNext.GAIN;
+				this.channelIndex = 0;
+				this.dataIndex = 0;
+			}
+			break;
 		case CONTROL:
 			if(b != CONTROL_BYTE)
 			{
 				Log.e(TAG, "Expected Control byte, instead received " + Byte.toString(b));
+				this.expected = ExpectedNext.FAILURE;
 			}
 			if(this.channelIndex > 0)	//true if it's not the first loop
 			{
 				this.transformListener.addData(this.getDataArray());
+				this.expected = ExpectedNext.GAIN;
 			}
 			
 			//reset everything for the next batch of data
 			this.channelIndex = 0;
 			this.dataIndex = 0;
-			this.expected = ExpectedNext.GAIN;
-			
+			break;
+		
 		case GAIN:
 			if(b == CONTROL_BYTE)
 			{
@@ -124,11 +170,12 @@ public class DataProtocol implements IBluetoothDataListener {
 			}
 			this.gains[this.channelIndex] = b;
 			this.expected = ExpectedNext.DATA;
+			break;
 			
 		case DATA:
 			if(b == CONTROL_BYTE)
 			{
-				Log.e(TAG, "Expected Data, received control byte for channel" + Integer.toString(this.channelIndex));
+				Log.e(TAG, "Expected Data, received control byte for channel " + Integer.toString(this.channelIndex));
 			}
 			this.data[this.channelIndex][this.dataIndex] = b;
 			this.dataIndex++;
@@ -146,6 +193,7 @@ public class DataProtocol implements IBluetoothDataListener {
 					this.expected = ExpectedNext.GAIN;
 				}
 			}
+			break;
 		}
 	}
 

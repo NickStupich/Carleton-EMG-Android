@@ -130,7 +130,14 @@ public class Bluetooth {
 		this.connectedThread = new ConnectedThread(this.inStream);
 		
 		if(startReadThread)
+		{
 			this.connectedThread.run();
+			Log.d(TAG, "Started readThread");
+		}
+		else
+		{
+			Log.d(TAG, "DId not start readThread");
+		}
 		
 		return true;
 	}
@@ -139,9 +146,13 @@ public class Bluetooth {
 	public byte[] readDirectly(int numBytes, int timeoutMs)
 	{
 		if(this.inStream == null || this.outStream == null)
+		{
 			return null;
+		}
 		if(this.connectedThread.isAlive())
+		{
 			return null;
+		}
 		
 		byte[] result = new byte[numBytes];
 		int index = 0;
@@ -154,6 +165,7 @@ public class Bluetooth {
 				result[index] = b;
 				index++;
 			} catch (IOException e) {
+				Log.e(TAG, "Reading bluetooth directly: " + e.toString());
 				// TODO Auto-generated catch block
 				
 			}
@@ -231,9 +243,11 @@ public class Bluetooth {
 			this.outStream.write(buffer);
 		} catch (IOException e)
 		{
+			Log.e(TAG, e.toString());
 			return false;
 		}	
 		
+		Log.d(TAG, "Sent byte: " + Byte.toString(b));
 		return true;
 	}
 	
@@ -282,7 +296,10 @@ public class Bluetooth {
 				
 				//send the data off to someone who cares (and is listening)
 				for(int i=0;i<numBytes;i++)
+				{
+					//Log.d(TAG, "received: " + Integer.toString(buffer[i] + 128));
 					dataListener.addByte(buffer[i]);
+				}
 				
 			}
 		}	
